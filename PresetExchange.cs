@@ -45,6 +45,15 @@ internal static class PresetExchange
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>
+    /// 解包后资源总字节上限：包体大小（远程下发 50MB）只限制压缩后的字节，高压缩比的 zip 解开后可以撑满教室电脑的磁盘。
+    /// 按实际写出的字节计（不信 zip 头里声明的长度），超出即中止并删掉已解出的目录。
+    /// </summary>
+    public const long MaxExtractedBytes = 256L * 1024 * 1024;
+
+    /// <summary>资源条目数上限（幻灯片文件夹图层可能有很多图，但不会上万）。</summary>
+    public const int MaxResourceEntries = 4096;
+
+    /// <summary>
     /// 已解包、但还没装进预设列表的导入目录（全路径，不区分大小写）。
     /// 用户取消安装时目录会一直留在这里，直到宿主重启——那之后它不再受保护，下次清理时按「无引用」删除。
     /// </summary>
@@ -172,8 +181,9 @@ internal static class PresetExchange
     /// <summary>
     /// 从 zip 导入预设：解包 resources/ 到 <paramref name="importRootDirectory"/>（按预设名建子目录），
     /// 并把 settings 里的 resources/ 相对引用重写为解包后的本地绝对路径。
+    /// 解包总量受 <paramref name="maxExtractedBytes"/> 与 <see cref="MaxResourceEntries"/> 限制（防 zip 炸弹）。
     /// </summary>
-    public static Result Import(string zipPath, string importRootDirectory)
+    public static Result Import(string zipPath, string importRootDirectory, long maxExtractedBytes = MaxExtractedBytes)
     {
         try
         {
@@ -220,17 +230,31 @@ internal static class PresetExchange
                 $"{Sanitize(preset.Name)}_{DateTime.Now:yyyyMMddHHmmss}_{Guid.NewGuid().ToString("N")[..6]}"));
             // 先登记为「导入中」再解包：从解包到装进预设列表之间（安装确认对话框、远程下发切回 UI 线程）
             // 这个目录还没有任何预设引用，清理导入目录时必须跳过它。
+            var resourceEntries = archive.Entries
+                .Where(e => e.FullName.StartsWith($"{ResourcesDirName}/", StringComparison.OrdinalIgnoreCase) &&
+                            !e.FullName.EndsWith("/"))
+                .ToList();
+            if (resourceEntries.Count > MaxResourceEntries)
+            {
+                return new Result(false, $"预设包资源文件过多（{resourceEntries.Count} 个，上限 {MaxResourceEntries}），已拒绝导入。");
+            }
+
             PendingImportDirectories.TryAdd(importDir, 0);
             var extracted = 0;
-            foreach (var entry in archive.Entries)
+            var budget = maxExtractedBytes;
+            foreach (var entry in resourceEntries)
             {
-                if (entry.FullName.StartsWith($"{ResourcesDirName}/", StringComparison.OrdinalIgnoreCase) &&
-                    !entry.FullName.EndsWith("/"))
+                if (ExtractEntry(entry, importDir, ref budget))
                 {
-                    if (ExtractEntry(entry, importDir))
-                    {
-                        extracted++;
-                    }
+                    extracted++;
+                }
+
+                if (budget < 0)
+                {
+                    // 超出解包上限：已解出的部分整体删掉，不留半截目录。
+                    PendingImportDirectories.TryRemove(importDir, out _);
+                    TryDeleteDirectory(importDir);
+                    return new Result(false, $"预设包资源解包后超过 {maxExtractedBytes / (1024 * 1024)}MB，已中止导入。");
                 }
             }
 
@@ -297,8 +321,11 @@ internal static class PresetExchange
         return false;
     }
 
-    /// <summary>把 zip 条目解压到 importDir（防路径穿越），返回是否成功。</summary>
-    private static bool ExtractEntry(ZipArchiveEntry entry, string importDir)
+    /// <summary>
+    /// 把 zip 条目解压到 importDir（防路径穿越），返回是否成功。按实际写出的字节扣减 <paramref name="budget"/>，
+    /// 扣到负数即停止写入（调用方据此中止整个导入）。
+    /// </summary>
+    private static bool ExtractEntry(ZipArchiveEntry entry, string importDir, ref long budget)
     {
         var rel = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
         var target = Path.GetFullPath(Path.Combine(importDir, rel));
@@ -313,12 +340,39 @@ internal static class PresetExchange
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             using var input = entry.Open();
             using var output = File.Create(target);
-            input.CopyTo(output);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                budget -= read;
+                if (budget < 0)
+                {
+                    return false;
+                }
+
+                output.Write(buffer, 0, read);
+            }
+
             return true;
         }
         catch
         {
             return false;
+        }
+    }
+
+    private static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+        catch
+        {
+            // 删不掉不影响结果：目录不再登记为导入中，之后的导入资源清理会按「无引用」删除。
         }
     }
 

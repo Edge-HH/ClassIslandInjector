@@ -258,6 +258,47 @@ Check(neutralized.SequenceEqual([nameof(InjectorSettings.CustomFfmpegDownloadUrl
         nameof(InjectorSettings.VideoFillPath), nameof(InjectorSettings.WallpaperLayers)]),
     "消毒结果如实列出（写进回执）", string.Join("、", neutralized));
 
+// 10d. 样式包解包上限（防 zip 炸弹）：50MB 包体只限压缩后字节，解包按实际写出字节计、条目数也有上限
+var bombDir = Path.Combine(Path.GetTempPath(), "remoteprobe-" + Guid.NewGuid().ToString("N")[..8]);
+Directory.CreateDirectory(bombDir);
+try
+{
+    string MakePackage(string name, Action<System.IO.Compression.ZipArchive> addResources)
+    {
+        var zip = Path.Combine(bombDir, name);
+        using var archive = System.IO.Compression.ZipFile.Open(zip, System.IO.Compression.ZipArchiveMode.Create);
+        using (var w = new StreamWriter(archive.CreateEntry(PresetExchange.PresetFileName).Open()))
+        {
+            w.Write(System.Text.Json.JsonSerializer.Serialize(new UserPreset { Name = "炸弹", Settings = new InjectorSettings() }));
+        }
+
+        addResources(archive);
+        return zip;
+    }
+
+    var bomb = MakePackage("bomb.cizip", a =>
+    {
+        using var s1 = a.CreateEntry("resources/zeros.bin", System.IO.Compression.CompressionLevel.Optimal).Open();
+        s1.Write(new byte[4 * 1024 * 1024]); // 4MB 全零，压缩后只有几 KB
+    });
+    var importRoot = Path.Combine(bombDir, "imported");
+    var bombResult = PresetExchange.Import(bomb, importRoot, maxExtractedBytes: 1024 * 1024);
+    Check(!bombResult.Success && (!Directory.Exists(importRoot) || !Directory.EnumerateFileSystemEntries(importRoot).Any()),
+        "解包超过字节上限即中止并清掉已解出的目录", bombResult.Message);
+    var ok = PresetExchange.Import(bomb, importRoot, maxExtractedBytes: 8 * 1024 * 1024);
+    Check(ok.Success, "上限之内照常导入", ok.Message);
+    var many = MakePackage("many.cizip", a =>
+    {
+        for (var i = 0; i <= PresetExchange.MaxResourceEntries; i++) a.CreateEntry($"resources/f{i}.png");
+    });
+    var manyResult = PresetExchange.Import(many, Path.Combine(bombDir, "imported-many"));
+    Check(!manyResult.Success && !Directory.Exists(Path.Combine(bombDir, "imported-many")), "资源条目超过上限直接拒绝", manyResult.Message);
+}
+finally
+{
+    Directory.Delete(bombDir, true);
+}
+
 // 11. 锁定开关：独立于 InjectorSettings，套用预设（CopyFrom）不会解锁
 r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { [InjectorRemoteSettings.LockKey] = "true" }, "王老师");
 Check(r.Success && RemoteManagementState.LockLocalEditing, "远程锁定");

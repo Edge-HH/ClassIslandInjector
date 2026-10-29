@@ -21,6 +21,7 @@
     <Compile Include="..\..\RemoteControl\InjectorRemoteLayout.cs" Link="InjectorRemoteLayout.cs" />
     <Compile Include="..\..\RemoteControl\InjectorRemoteSettings.cs" Link="InjectorRemoteSettings.cs" />
     <Compile Include="..\..\RemoteControl\RemoteManagementState.cs" Link="RemoteManagementState.cs" />
+    <Compile Include="..\..\PresetExchange.cs" Link="PresetExchange.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
   <ItemGroup>
