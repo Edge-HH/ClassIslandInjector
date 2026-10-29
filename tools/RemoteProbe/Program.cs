@@ -293,6 +293,31 @@ try
     });
     var manyResult = PresetExchange.Import(many, Path.Combine(bombDir, "imported-many"));
     Check(!manyResult.Success && !Directory.Exists(Path.Combine(bombDir, "imported-many")), "资源条目超过上限直接拒绝", manyResult.Message);
+
+    // preset.json 在解包资源之前就整体读入内存：解压后超过上限直接拒绝（高压缩比的超大 JSON）
+    var hugeJson = Path.Combine(bombDir, "huge-json.cizip");
+    using (var archive = System.IO.Compression.ZipFile.Open(hugeJson, System.IO.Compression.ZipArchiveMode.Create))
+    using (var w = new StreamWriter(archive.CreateEntry(PresetExchange.PresetFileName, System.IO.Compression.CompressionLevel.Optimal).Open()))
+    {
+        w.Write(new string(' ', PresetExchange.MaxJsonBytes + 1));
+        w.Write(System.Text.Json.JsonSerializer.Serialize(new UserPreset { Name = "大 JSON", Settings = new InjectorSettings() }));
+    }
+    var hugeResult = PresetExchange.Import(hugeJson, Path.Combine(bombDir, "imported-json"));
+    Check(!hugeResult.Success && hugeResult.Message.Contains("preset.json"), "preset.json 解压后超过上限直接拒绝", hugeResult.Message);
+
+    // 装进预设列表后按「这次导入」释放「导入中」登记——包里有没被引用的资源也一样（之后由清理按无引用删除）
+    var unreferenced = MakePackage("unreferenced.cizip", a =>
+    {
+        using var s2 = a.CreateEntry("resources/unused.png").Open();
+        s2.Write(new byte[16]);
+    });
+    var unrefRoot = Path.Combine(bombDir, "imported-unref");
+    var unrefResult = PresetExchange.Import(unreferenced, unrefRoot);
+    var unrefDir = Directory.EnumerateDirectories(unrefRoot).Single();
+    var pendingBefore = PresetExchange.IsImportPending(unrefDir);
+    PresetExchange.CompleteImport(unrefResult.Preset!);
+    Check(unrefResult.Success && pendingBefore && !PresetExchange.IsImportPending(unrefDir),
+        "装进列表后释放导入中登记（资源未被引用也释放）", $"{unrefResult.Message} pending: {pendingBefore} → {PresetExchange.IsImportPending(unrefDir)}");
 }
 finally
 {

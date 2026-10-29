@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 namespace ClassIslandInjector;
@@ -54,10 +55,22 @@ internal static class PresetExchange
     public const int MaxResourceEntries = 4096;
 
     /// <summary>
+    /// preset.json / metadata.json 解压后的字节上限：它们在解包资源之前就被整体读进内存反序列化，
+    /// 高压缩比的超大 JSON 会在资源上限生效前耗尽内存 / CPU。正常预设只有几十 KB。
+    /// </summary>
+    public const int MaxJsonBytes = 16 * 1024 * 1024;
+
+    /// <summary>
     /// 已解包、但还没装进预设列表的导入目录（全路径，不区分大小写）。
     /// 用户取消安装时目录会一直留在这里，直到宿主重启——那之后它不再受保护，下次清理时按「无引用」删除。
     /// </summary>
     private static readonly ConcurrentDictionary<string, byte> PendingImportDirectories = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 导入解析出的预设 → 它的解包目录。<see cref="CompleteImport"/> 按这份对应关系释放「导入中」登记，
+    /// 而不是看设置有没有引用目录里的文件：包里可以带没被引用的资源，按引用判断会让目录永远挂着「导入中」、清理不掉。
+    /// </summary>
+    private static readonly ConditionalWeakTable<UserPreset, string> ImportDirectories = new();
 
     /// <summary>操作结果；导入成功时 <see cref="Preset"/> 为解析出的用户预设，<see cref="Metadata"/> 为元数据。</summary>
     public sealed record Result(bool Success, string Message, UserPreset? Preset = null, PresetMetadata? Metadata = null);
@@ -66,15 +79,13 @@ internal static class PresetExchange
     public static bool IsImportPending(string directory) =>
         PendingImportDirectories.ContainsKey(Path.GetFullPath(directory));
 
-    /// <summary>预设已装进列表：释放它引用的导入目录，此后由「是否被引用」决定去留。</summary>
+    /// <summary>预设已装进列表：释放这次导入的解包目录，此后由「是否被引用」决定去留（没被引用的资源随下次清理删除）。</summary>
     public static void CompleteImport(UserPreset preset)
     {
-        foreach (var directory in PendingImportDirectories.Keys)
+        if (ImportDirectories.TryGetValue(preset, out var directory))
         {
-            if (EnumerateResourcePaths(preset.Settings).Any(path => IsPathWithin(path, directory)))
-            {
-                PendingImportDirectories.TryRemove(directory, out _);
-            }
+            PendingImportDirectories.TryRemove(directory, out _);
+            ImportDirectories.Remove(preset);
         }
     }
 
@@ -196,12 +207,12 @@ internal static class PresetExchange
                 return new Result(false, "不是有效的预设包：缺少 preset.json。");
             }
 
-            UserPreset? preset;
-            using (var reader = new StreamReader(presetEntry.Open()))
+            if (ReadBoundedText(presetEntry) is not { } presetJson)
             {
-                preset = JsonSerializer.Deserialize<UserPreset>(reader.ReadToEnd());
+                return new Result(false, $"预设包的 preset.json 解压后超过 {MaxJsonBytes / (1024 * 1024)}MB，已拒绝导入。");
             }
 
+            var preset = JsonSerializer.Deserialize<UserPreset>(presetJson);
             if (preset == null || string.IsNullOrWhiteSpace(preset.Name))
             {
                 return new Result(false, "预设包内容无效。");
@@ -214,8 +225,10 @@ internal static class PresetExchange
             {
                 try
                 {
-                    using var reader = new StreamReader(metadataEntry.Open());
-                    metadata = JsonSerializer.Deserialize<PresetMetadata>(reader.ReadToEnd());
+                    // 超限的元数据按「没有元数据」处理（不影响安装）。
+                    metadata = ReadBoundedText(metadataEntry) is { } metadataJson
+                        ? JsonSerializer.Deserialize<PresetMetadata>(metadataJson)
+                        : null;
                 }
                 catch
                 {
@@ -262,6 +275,10 @@ internal static class PresetExchange
             {
                 // 没有资源就不会建目录，也就无需保护。
                 PendingImportDirectories.TryRemove(importDir, out _);
+            }
+            else
+            {
+                ImportDirectories.AddOrUpdate(preset, importDir);
             }
 
             // 重写 resources/ 相对引用为本地绝对路径；其余残留路径（不应出现）清空。
@@ -359,6 +376,28 @@ internal static class PresetExchange
         {
             return false;
         }
+    }
+
+    /// <summary>读出 zip 条目的文本，按实际解压字节限制在 <see cref="MaxJsonBytes"/> 以内；超出返回 null。</summary>
+    private static string? ReadBoundedText(ZipArchiveEntry entry)
+    {
+        using var input = entry.Open();
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+        while ((read = input.Read(chunk, 0, chunk.Length)) > 0)
+        {
+            if (buffer.Length + read > MaxJsonBytes)
+            {
+                return null;
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        buffer.Position = 0;
+        using var reader = new StreamReader(buffer);
+        return reader.ReadToEnd();
     }
 
     private static void TryDeleteDirectory(string directory)
