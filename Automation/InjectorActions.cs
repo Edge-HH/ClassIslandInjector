@@ -37,14 +37,6 @@ internal static class InjectorSettingReflection
     }
 
     /// <summary>
-    /// 按名称解析枚举：忽略大小写与首尾空白。
-    /// 有的设置项早期是自由文本（如「字色来源」曾让用户手填 KeepHost / Fixed / AutoInvert），
-    /// 已保存的行动里可能是 "fixed" 这类写法，严格解析会让行动编辑器一打开就抛异常。
-    /// </summary>
-    private static object ParseEnum(Type enumType, string? text) =>
-        Enum.Parse(enumType, text?.Trim() ?? string.Empty, ignoreCase: true);
-
-    /// <summary>
     /// 把自动化行动设置中的值（可能是 <see cref="JsonElement"/> 或原始类型）转换为
     /// 目标属性类型。
     /// </summary>
@@ -70,7 +62,7 @@ internal static class InjectorSettingReflection
             if (targetType.IsEnum)
             {
                 return json.ValueKind == JsonValueKind.String
-                    ? ParseEnum(targetType, json.GetString())
+                    ? Enum.Parse(targetType, json.GetString() ?? string.Empty)
                     : Enum.ToObject(targetType, json.GetInt32());
             }
 
@@ -95,7 +87,7 @@ internal static class InjectorSettingReflection
         var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
         if (underlying.IsEnum)
         {
-            return value is string text ? ParseEnum(underlying, text) : Enum.ToObject(underlying, Convert.ToInt32(value));
+            return value is string text ? Enum.Parse(underlying, text) : Enum.ToObject(underlying, Convert.ToInt32(value));
         }
 
         if (underlying == typeof(bool))

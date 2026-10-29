@@ -103,18 +103,6 @@ foreach (var f in fields.Where(f => f.Type == RemoteFieldType.Number))
 }
 Check(rangeGaps.Count == 0, "数值字段声明范围覆盖 setter 可取的全部值", string.Join(",", rangeGaps));
 
-// 3c. 自动化目录与远程 / 设置页的下拉同源（SettingChoices）：同一枚举值的显示名一致
-var labelDrift = new List<string>();
-foreach (var f in fields.Where(f => f.Type == RemoteFieldType.Select))
-{
-    if (InjectorSettingCatalog.Find(f.Key) is not { Kind: SettingValueKind.Enum } spec) continue;
-    for (var i = 0; i < f.Options!.Count; i++)
-    {
-        var option = spec.EnumOptions.FirstOrDefault(o => o.Key.ToString() == f.Options[i]);
-        if (option.Value != f.OptionLabels![i]) labelDrift.Add($"{f.Key}.{f.Options[i]}：{option.Value ?? "（缺）"} ≠ {f.OptionLabels[i]}");
-    }
-}
-Check(labelDrift.Count == 0, "自动化目录与远程设置页的下拉显示名一致", string.Join("，", labelDrift));
 
 // 4. 全新安装的当前值能通过 RemoteCI 服务端/插件端同一套校验（否则 WebUI 预填后原样下发也会被拒）
 var values = InjectorRemoteSettings.ReadValues();

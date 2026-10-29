@@ -158,6 +158,8 @@ internal static class InjectorRemoteLayout
         b.Number("RippleConstraintRadius", "约束半径", "Ripple 扩散的圆形约束半径（像素），0 为自动按主界面大小计算。", 0, 2000, 10,
             visible: [Is("RippleConstraintEnabled", "true"), notScreen]);
         var cinematic = Is(ripple, nameof(RippleType.Cinematic));
+        // 这两项的上限按 setter 钳制范围（80 / 60）声明，比设置页滑块（60 / 40）宽：RemoteCI 严格按声明范围校验，
+        // 自动化 / 预设能写入滑块范围外的值，声明窄了班级页整页提交会被整批拒绝。
         b.Number("CinematicShakeAmount", "晃动幅度", "提醒时画面晃动的最远位移（像素），0 为关闭晃动。", 0, 80, 1, slider: true, visible: [cinematic]);
         b.Number("CinematicBlurRadius", "模糊半径", "起始模糊半径。", 0, 60, 1, slider: true, visible: [cinematic]);
         b.Number("CinematicFlashAmount", "闪光强度", "中心白光的亮度扩散强度，0 为关闭闪光。", 0, 1, 0.05, slider: true, visible: [cinematic]);

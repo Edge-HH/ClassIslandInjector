@@ -299,10 +299,8 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     private readonly Slider _prepareWarningFlashAmount = Slider(0, 1, 0.05);
     private readonly Spin _prepareWarningFrameThickness = Spinner(0.005, 0.1, 0.005, "0.###");
     private readonly Slider _prepareWarningOpacity = Slider(0.1, 1, 0.05);
-    // 范围与设置 setter 的钳制、自动化目录一致：滑块比它窄的话，自动化/预设写入的较大值一加载就被滑块截断，
-    // 远程设置页（按同一范围校验）整页提交也会被拒。
-    private readonly Slider _cinematicShake = Slider(0, 80, 1);
-    private readonly Slider _cinematicBlur = Slider(0, 60, 1);
+    private readonly Slider _cinematicShake = Slider(0, 60, 1);
+    private readonly Slider _cinematicBlur = Slider(0, 40, 1);
     private readonly Slider _cinematicFlash = Slider(0, 1, 0.05);
     // 卡片总开关（页面归一化用，不持久化）：关闭时对应样式值写为 None / HostDefault。
     private readonly ToggleSwitch _backgroundTextureEnabled = Toggle();
