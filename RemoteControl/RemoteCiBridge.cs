@@ -37,7 +37,11 @@ internal static class RemoteCiBridge
 
     private static string LogPath => Path.Combine(InjectorRuntime.ConfigDirectory, "remote-control.log");
 
-    public static void Log(string message) => DiagnosticLog.Write(LogPath, message);
+    /// <summary>
+    /// 远程管理日志（谁在什么时候远程改了什么）按审计日志写：不受「输出诊断日志」开关控制——
+    /// 那个开关本身就能被远程修改，跟着它走等于让远程把自己的操作记录关掉。
+    /// </summary>
+    public static void Log(string message) => DiagnosticLog.WriteAudit(LogPath, message);
 
     /// <summary>在宿主 AppStarted 之后调用：RemoteCI 已加载则注册分组与远程功能，否则静默跳过。</summary>
     public static void TryAttach()
@@ -107,7 +111,12 @@ internal static class RemoteCiBridge
         }
     }
 
-    /// <summary>宿主退出前注销（RemoteCI 会据此从 WebUI 移除本插件的入口）。</summary>
+    /// <summary>
+    /// 从 RemoteCI 注销分组与远程功能（本机选择「不连接 RemoteCI」时）。
+    /// 宿主退出时刻意<b>不</b>调用：注销会让 RemoteCI 把不含本分组的列表同步给服务端，
+    /// 服务端整体替换该班的快照，教室电脑关机期间 WebUI 就没有「样式注入器」设置页，学校也没法给离线班级排队下发。
+    /// RemoteCI 自己退出时会断开一切，用不着本插件注销。
+    /// </summary>
     public static void Detach()
     {
         if (!IsAttached)

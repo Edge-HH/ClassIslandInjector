@@ -158,8 +158,8 @@ internal static class InjectorRemoteLayout
         b.Number("RippleConstraintRadius", "约束半径", "Ripple 扩散的圆形约束半径（像素），0 为自动按主界面大小计算。", 0, 2000, 10,
             visible: [Is("RippleConstraintEnabled", "true"), notScreen]);
         var cinematic = Is(ripple, nameof(RippleType.Cinematic));
-        b.Number("CinematicShakeAmount", "晃动幅度", "提醒时画面晃动的最远位移（像素），0 为关闭晃动。", 0, 60, 1, slider: true, visible: [cinematic]);
-        b.Number("CinematicBlurRadius", "模糊半径", "起始模糊半径。", 0, 40, 1, slider: true, visible: [cinematic]);
+        b.Number("CinematicShakeAmount", "晃动幅度", "提醒时画面晃动的最远位移（像素），0 为关闭晃动。", 0, 80, 1, slider: true, visible: [cinematic]);
+        b.Number("CinematicBlurRadius", "模糊半径", "起始模糊半径。", 0, 60, 1, slider: true, visible: [cinematic]);
         b.Number("CinematicFlashAmount", "闪光强度", "中心白光的亮度扩散强度，0 为关闭闪光。", 0, 1, 0.05, slider: true, visible: [cinematic]);
 
         b.Card("全屏流光", "仿照手机智慧识屏或语音助手激活时的全屏内发光效果，可与上方任意 Ripple 效果叠加播放。", toggle: "MarqueeEnabled");
@@ -253,7 +253,7 @@ internal static class InjectorRemoteLayout
         b.Number("CornerRadius", "圆角半径", "注意：在此处修改圆角有时需要重启 ClassIsland 才会生效", 0, 20, 1);
         b.Number("Rotation", "旋转角度", "以中心点旋转主界面。", -360, 360, 1);
         // 设置页没有形状下拉（修改圆角时自动切为圆角矩形）；远程额外开放，便于统一改回「跟随 ClassIsland」。
-        b.Select("Shape", "形状", "主界面的整体形状；修改圆角半径时会自动切为圆角矩形。", ShapeChoices);
+        b.Select("Shape", "形状", "主界面的整体形状；修改圆角半径时会自动切为圆角矩形。", SettingChoices.IslandShapes);
 
         // ===== 调试 =====
         b.Section("调试");
@@ -265,14 +265,6 @@ internal static class InjectorRemoteLayout
 
         return b.Items;
     }
-
-    private static readonly SettingChoice<IslandShape>[] ShapeChoices =
-    [
-        new(IslandShape.HostDefault, "跟随 ClassIsland"),
-        new(IslandShape.Rectangle, "矩形"),
-        new(IslandShape.RoundedRectangle, "圆角矩形"),
-        new(IslandShape.Capsule, "胶囊"),
-    ];
 
     private static RemoteCondition Is(string key, params string[] values) => new(key, values);
 

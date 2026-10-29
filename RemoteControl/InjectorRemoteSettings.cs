@@ -52,7 +52,7 @@ internal sealed record RemoteField(
     public IReadOnlyList<RemoteCondition>? EnabledWhen { get; init; }
 
     /// <summary>
-    /// 教室端本机文件路径：远程写入时拒绝网络共享路径（\\host\share、//host/share）与 URL。
+    /// 教室端本机文件路径：远程写入时拒绝网络共享路径与网址（判定见 <see cref="InjectorRemoteSettings.IsNetworkPath"/>）。
     /// 否则 WebUI 能让教室电脑去访问任意 SMB 主机（顺带发起 Windows 身份认证），或加载外部的样式表 / 视频。
     /// </summary>
     public bool LocalPathOnly { get; init; }
@@ -79,14 +79,16 @@ internal static class InjectorRemoteSettings
     public const string LockKey = "remote.lockLocalEditing";
 
     /// <summary>
-    /// 曾经开放、出于安全考虑已撤回的字段 Key：远程提交里出现时静默忽略（并在回执里注明），
-    /// 而不是报「设置项不存在」——否则按旧字段表整页提交的 WebUI 会因为这一项把整批修改都拒掉。
+    /// 只能在教室端本机修改、任何远程来源都不能改的设置。远程字段表里不声明它们（RemoteCI 会拒绝含这些键的提交，
+    /// 本类 <see cref="Apply"/> 同样按「设置项不存在」拒绝）；下发样式包时由 <see cref="SanitizeRemoteSettings"/> 恢复为教室端现值。
     /// </summary>
-    private static readonly HashSet<string> RetiredKeys = new(StringComparer.Ordinal)
-    {
+    private static readonly string[] LocalOnlySettings =
+    [
         // 排在 FFmpeg 下载源第一位、下载到的 DLL 会被加载进宿主进程，不能交给远程。
         nameof(InjectorSettings.CustomFfmpegDownloadUrl),
-    };
+        // 视频工程路径：设置页没有写入点（运行时回退到默认工程），远程同样不该改。
+        nameof(InjectorSettings.VideoProjectPath),
+    ];
 
     private static readonly Lazy<IReadOnlyList<RemoteBinding>> Map = new(InjectorRemoteLayout.Build);
 
@@ -149,22 +151,13 @@ internal static class InjectorRemoteSettings
         var errors = new List<string>();
         var parsed = new List<(PropertyInfo Property, object? Value)>();
         var toggles = new List<(RemoteEnumToggle Toggle, bool On)>();
-        var ignored = new List<string>();
         bool? lockValue = null;
 
         foreach (var (key, raw) in values)
         {
             if (!bindings.TryGetValue(key, out var binding))
             {
-                if (RetiredKeys.Contains(key))
-                {
-                    ignored.Add(key);
-                }
-                else
-                {
-                    errors.Add($"设置项不存在：{key}");
-                }
-
+                errors.Add($"设置项不存在：{key}");
                 continue;
             }
 
@@ -266,10 +259,13 @@ internal static class InjectorRemoteSettings
                 settings.AnimationMode = SettingChoices.IslandAnimationModes[0].Value;
             }
 
-            // 与设置页一致：显式改了圆角而形状仍是「跟随 ClassIsland」时切到圆角矩形，否则圆角不会生效。
+            // 与设置页一致：改了圆角而形状仍是「跟随 ClassIsland」时切到圆角矩形，否则圆角不会生效。
+            // 形状只有这次真的改了才算显式选择——班级设置页是整页提交，每次都会原样带上当前形状。
             var cornerProperty = typeof(InjectorSettings).GetProperty(nameof(InjectorSettings.CornerRadius))!;
-            if (!Equals(before[cornerProperty], settings.CornerRadius) &&
-                !provided.Contains(nameof(InjectorSettings.Shape)) && settings.Shape == IslandShape.HostDefault)
+            var shapeProperty = typeof(InjectorSettings).GetProperty(nameof(InjectorSettings.Shape))!;
+            var shapeChosen = parsed.Any(p => p.Property.Name == shapeProperty.Name && !Equals(p.Value, before[shapeProperty]));
+            if (!Equals(before[cornerProperty], settings.CornerRadius) && !shapeChosen &&
+                settings.Shape == IslandShape.HostDefault)
             {
                 settings.Shape = IslandShape.RoundedRectangle;
             }
@@ -296,23 +292,73 @@ internal static class InjectorRemoteSettings
 
         RemoteManagementState.RecordRemoteChange(requestedBy);
         InjectorRuntime.NotifySettingsChangedRemotely();
-        var message = changed == 0 ? "设置与当前值一致，无需修改" : $"已更新 {changed} 项样式设置";
-        if (ignored.Count > 0)
-        {
-            message += $"（已忽略不再开放远程修改的设置项：{string.Join("、", ignored)}）";
-        }
-
-        return new RemoteApplyResult(true, message);
+        return new RemoteApplyResult(true, changed == 0 ? "设置与当前值一致，无需修改" : $"已更新 {changed} 项样式设置");
     }
 
-    /// <summary>网络共享路径（\\host\share、//host/share、\\?\UNC\…）或带协议的网址。</summary>
+    /// <summary>
+    /// 远程来源的整套设置（「下发样式包」里的预设）装进预设列表前的消毒，规矩与逐字段写入一致：
+    /// 本机专属设置（<see cref="LocalOnlySettings"/>）恢复为教室端现值；本机路径类设置（布局里的 LocalPath 字段）
+    /// 是网络路径 / 网址时同样恢复为教室端现值，图层图片的网络路径直接清空。
+    /// 预设套用走 CopyFrom、会整体覆盖这些值，不消毒的话样式包就成了绕过字段校验的后门。
+    /// </summary>
+    /// <returns>被恢复 / 清空的设置名（写进回执）。</returns>
+    public static IReadOnlyList<string> SanitizeRemoteSettings(InjectorSettings incoming, InjectorSettings current)
+    {
+        var neutralized = new List<string>();
+        foreach (var name in LocalOnlySettings)
+        {
+            var property = typeof(InjectorSettings).GetProperty(name)!;
+            if (!Equals(property.GetValue(incoming), property.GetValue(current)))
+            {
+                property.SetValue(incoming, property.GetValue(current));
+                neutralized.Add(name);
+            }
+        }
+
+        foreach (var property in Map.Value.Where(x => x.Field.LocalPathOnly).Select(x => x.Property!))
+        {
+            if (IsNetworkPath(property.GetValue(incoming) as string))
+            {
+                property.SetValue(incoming, property.GetValue(current));
+                neutralized.Add(property.Name);
+            }
+        }
+
+        // 导入时图层图片已改写到本机解包目录，这里是兜底：别的来源的整套设置同样不能把网络路径带进来。
+        var networkLayers = incoming.WallpaperLayers.Where(l => IsNetworkPath(l.Path)).ToList();
+        foreach (var layer in networkLayers)
+        {
+            layer.Path = string.Empty;
+        }
+
+        if (networkLayers.Count > 0)
+        {
+            neutralized.Add(nameof(InjectorSettings.WallpaperLayers));
+        }
+
+        return neutralized;
+    }
+
+    /// <summary>
+    /// 不是教室端本机文件路径。本机路径只认盘符路径（C:\…、C:/…）与相对路径，其余一律视为网络 / 外部来源：
+    /// 任意两个分隔符开头（\\host、//host，以及系统同样当成 UNC 的混写 \/host、/\host，还有 \\?\、\\.\ 设备路径）、
+    /// NT 前缀 \??\（系统不再规范化，\??\UNC\host 直达网络），以及任何带冒号的协议写法——
+    /// 除了 https://… 这种，FFmpeg 还认 http:host/x、tcp:host:port 这类不带 // 的协议。
+    /// </summary>
     internal static bool IsNetworkPath(string? raw)
     {
         var text = raw?.Trim() ?? string.Empty;
-        return text.StartsWith(@"\\", StringComparison.Ordinal) ||
-               text.StartsWith("//", StringComparison.Ordinal) ||
-               text.Contains("://", StringComparison.Ordinal);
+        if (text.Length >= 2 && char.IsAsciiLetter(text[0]) && text[1] == ':')
+        {
+            return false;
+        }
+
+        return (text.Length >= 2 && IsSeparator(text[0]) && IsSeparator(text[1])) ||
+               text.StartsWith(@"\??\", StringComparison.Ordinal) ||
+               text.Contains(':');
     }
+
+    private static bool IsSeparator(char c) => c is '\\' or '/';
 
     /// <summary>颜色规范为 #AARRGGBB（大写；缺省透明度视为不透明），非法返回 null。</summary>
     internal static string? NormalizeColor(string? raw)

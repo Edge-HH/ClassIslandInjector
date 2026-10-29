@@ -27,7 +27,6 @@ public sealed class Plugin : PluginBase
         services.AddSettingsPage<InjectorSettingsPage>();
         InjectorAutomation.Register(services);
         AppBase.Current.AppStarted += OnAppStarted;
-        AppBase.Current.AppStopping += (_, _) => RemoteCiBridge.Detach();
     }
 
     private static void OnAppStarted(object? sender, EventArgs e)

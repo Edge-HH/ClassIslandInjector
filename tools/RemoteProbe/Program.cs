@@ -87,6 +87,35 @@ Check(byKey["CountdownArrowColor"].VisibleWhen?.Count == 2, "箭头卡片：即�
 Check(fields.Count(f => f.Type == RemoteFieldType.Color) == 16 && byKey["BackgroundColor"].Type == RemoteFieldType.Color, "颜色字段用 Color 类型（取色器 + 透明度 + 色卡）");
 Check(byKey["Opacity"].Slider && byKey["Opacity"].Step == 0.05 && !byKey["ShadowBlur"].Slider, "滑块 / 步长与设置页一致");
 
+// 3b. 数值字段的声明范围必须覆盖 setter 能存下的全部值：RemoteCI 按声明范围严格校验，
+//     教室端（自动化 / 预设）存着范围外的值时，班级页整页提交会整批被拒（字段被隐藏时管理员都看不到改哪项）。
+var rangeGaps = new List<string>();
+foreach (var f in fields.Where(f => f.Type == RemoteFieldType.Number))
+{
+    var property = typeof(InjectorSettings).GetProperty(f.Key)!;
+    var probe = new InjectorSettings();
+    foreach (var extreme in new[] { -1e9, 1e9 })
+    {
+        property.SetValue(probe, property.PropertyType == typeof(int) ? (object)(int)extreme : extreme);
+        var stored = Convert.ToDouble(property.GetValue(probe));
+        if (stored < f.Min || stored > f.Max) rangeGaps.Add($"{f.Key}={stored}（声明 {f.Min}..{f.Max}）");
+    }
+}
+Check(rangeGaps.Count == 0, "数值字段声明范围覆盖 setter 可取的全部值", string.Join(",", rangeGaps));
+
+// 3c. 自动化目录与远程 / 设置页的下拉同源（SettingChoices）：同一枚举值的显示名一致
+var labelDrift = new List<string>();
+foreach (var f in fields.Where(f => f.Type == RemoteFieldType.Select))
+{
+    if (InjectorSettingCatalog.Find(f.Key) is not { Kind: SettingValueKind.Enum } spec) continue;
+    for (var i = 0; i < f.Options!.Count; i++)
+    {
+        var option = spec.EnumOptions.FirstOrDefault(o => o.Key.ToString() == f.Options[i]);
+        if (option.Value != f.OptionLabels![i]) labelDrift.Add($"{f.Key}.{f.Options[i]}：{option.Value ?? "（缺）"} ≠ {f.OptionLabels[i]}");
+    }
+}
+Check(labelDrift.Count == 0, "自动化目录与远程设置页的下拉显示名一致", string.Join("，", labelDrift));
+
 // 4. 全新安装的当前值能通过 RemoteCI 服务端/插件端同一套校验（否则 WebUI 预填后原样下发也会被拒）
 var values = InjectorRemoteSettings.ReadValues();
 Check(values.Keys.ToHashSet().SetEquals(fields.Select(f => f.Key)), "上报值的键 == 声明的字段");
@@ -117,6 +146,20 @@ Check(s.ShadowBlur == before, "未出现的键保持原值");
 s.Shape = IslandShape.HostDefault;
 r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { ["CornerRadius"] = "12" }, "probe");
 Check(r.Success && s.CornerRadius == 12 && s.Shape == IslandShape.RoundedRectangle, "改圆角自动切圆角矩形", s.Shape.ToString());
+
+// 7b. 班级设置页是整页提交（每次都原样带上形状）：只改圆角同样要切圆角矩形；同时真的改了形状则尊重选择
+s.Shape = IslandShape.HostDefault;
+var page = InjectorRemoteSettings.ReadValues();
+page["CornerRadius"] = "8";
+r = InjectorRemoteSettings.Apply(ExtensionFieldValidator.ValidateSettings(parameters, page, out var ePage), "probe");
+Check(ePage is null && r.Success && s.CornerRadius == 8 && s.Shape == IslandShape.RoundedRectangle,
+    "整页提交只改圆角也切圆角矩形", $"{ePage ?? r.Message} → {s.Shape}");
+page = InjectorRemoteSettings.ReadValues();
+page["CornerRadius"] = "6";
+page["Shape"] = nameof(IslandShape.HostDefault);
+r = InjectorRemoteSettings.Apply(ExtensionFieldValidator.ValidateSettings(parameters, page, out ePage), "probe");
+Check(ePage is null && r.Success && s.Shape == IslandShape.HostDefault,
+    "整页提交里同时把形状改回「跟随 ClassIsland」时尊重选择", $"{ePage ?? r.Message} → {s.Shape}");
 
 // 8. 卡片总开关（虚拟）：开 → 自动选第一项；指定类型 → 用指定；关 → None（忽略残留选项）；空下拉 → 保持
 s.RippleType = RippleType.None;
@@ -156,27 +199,64 @@ Check(r.Success && s.Opacity == 1 && s.CountdownArrowCount == 4 && s.FakeWeather
 r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { ["CountdownArrowCount"] = "2.5" }, "probe");
 Check(r.Success && s.CountdownArrowCount == 3, "整数 .5 远离零舍入（不是银行家舍入）", s.CountdownArrowCount.ToString());
 
-// 10b. 安全：FFmpeg 下载源不开放（下载到的 DLL 会进宿主进程）；本机路径字段拒绝网络共享路径 / 网址
+// 10b. 安全：本机专属设置（FFmpeg 下载源，下载到的 DLL 会进宿主进程）不开放——含它的提交在 RemoteCI 预检与插件侧都整批被拒
 Check(!byKey.ContainsKey(nameof(InjectorSettings.CustomFfmpegDownloadUrl)), "FFmpeg 下载源不开放给远程");
 var ffmpegUrl = s.CustomFfmpegDownloadUrl;
-r = InjectorRemoteSettings.Apply(new Dictionary<string, string?>
+var opacityBefore = s.Opacity;
+var withFfmpeg = new Dictionary<string, string?>
 {
     [nameof(InjectorSettings.CustomFfmpegDownloadUrl)] = "https://evil.example/ffmpeg.zip", ["Opacity"] = "0.4"
-}, "probe");
-Check(r.Success && s.CustomFfmpegDownloadUrl == ffmpegUrl && s.Opacity == 0.4 && r.Message.Contains("已忽略"),
-    "按旧字段表提交的 FFmpeg 下载源被忽略、其余照常写入", r.Message);
-foreach (var bad in new[] { @"\\evil\share\x.axaml", "//evil/share/x.axaml", @"\\?\UNC\evil\share\x.axaml", "http://evil.example/x.axaml" })
+};
+ExtensionFieldValidator.ValidateSettings(parameters, withFfmpeg, out var eFfmpeg);
+r = InjectorRemoteSettings.Apply(withFfmpeg, "probe");
+Check(eFfmpeg != null && !r.Success && s.CustomFfmpegDownloadUrl == ffmpegUrl && s.Opacity == opacityBefore,
+    "含 FFmpeg 下载源的提交整批被拒（RemoteCI 预检与插件一致）", $"{eFfmpeg} / {r.Message}");
+
+// 本机路径判定：只认盘符路径与相对路径；混写分隔符的 UNC、NT 前缀、FFmpeg 不带 // 的协议都算网络 / 外部来源
+string[] networkPaths =
+[
+    @"\\evil\share\x", "//evil/share/x", @"\/evil/share/x", @"/\evil\share\x", @"\\?\UNC\evil\share\x",
+    @"\??\UNC\evil\share\x", @"\\.\pipe\x", "http://evil.example/x", "http:evil.example/x", "tcp:evil.example:1234", "file:///C:/x"
+];
+string[] localPaths = [@"C:\Styles\x.axaml", "C:/Styles/x.axaml", "x.axaml", @"..\x.axaml", @"\Styles\x.axaml", "", @"  D:\x.mp4  "];
+Check(networkPaths.All(InjectorRemoteSettings.IsNetworkPath) && !localPaths.Any(InjectorRemoteSettings.IsNetworkPath),
+    "本机路径判定（盘符 / 相对路径才算本机）",
+    string.Join(" ", networkPaths.Where(p => !InjectorRemoteSettings.IsNetworkPath(p)).Concat(localPaths.Where(InjectorRemoteSettings.IsNetworkPath))));
+s.Opacity = 0.4;
+foreach (var bad in new[] { @"\\evil\share\x.axaml", @"\/evil/share/x.axaml", @"\??\UNC\evil\share\x.axaml", "http://evil.example/x.axaml" })
 {
     r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { ["StyleSheetPath"] = bad, ["Opacity"] = "0.6" }, "probe");
     Check(!r.Success && s.Opacity == 0.4, $"样式表路径拒绝网络路径 / 网址：{bad}", r.Message);
 }
-r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { ["VideoFillPath"] = @"\\evil\share\x.mp4" }, "probe");
-Check(!r.Success, "视频文件路径拒绝网络共享路径", r.Message);
+foreach (var bad in new[] { @"\\evil\share\x.mp4", @"/\evil\share\x.mp4", "tcp:evil.example:1234" })
+{
+    r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { ["VideoFillPath"] = bad }, "probe");
+    Check(!r.Success, $"视频文件路径拒绝网络路径 / FFmpeg 协议：{bad}", r.Message);
+}
 r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { ["StyleSheetPath"] = @"D:\Styles\Overrides.axaml" }, "probe");
 Check(r.Success && s.StyleSheetPath == @"D:\Styles\Overrides.axaml", "本机路径照常写入", r.Message);
 s.StyleSheetPath = @"\\nas\styles\local.axaml";
 r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { ["StyleSheetPath"] = @"\\nas\styles\local.axaml" }, "probe");
 Check(r.Success, "本机自己设的网络路径原样回传不被拒（整页提交）", r.Message);
+
+// 10c. 下发样式包：包里的整套设置按逐字段写入的同一套规矩消毒（预设套用走 CopyFrom，不消毒就是后门）
+var current = new InjectorSettings { CustomFfmpegDownloadUrl = "https://mirror.school.example/ffmpeg.zip", VideoFillPath = @"D:\Videos\bg.mp4" };
+var incoming = new InjectorSettings
+{
+    CustomFfmpegDownloadUrl = "https://evil.example/ffmpeg.zip",
+    VideoProjectPath = @"\\evil\share\project.ciproj",
+    VideoFillPath = @"\/evil/share/bg.mp4",
+    StyleSheetPath = @"C:\imported\school\resources\style.axaml",
+    WallpaperLayers = [new WallpaperLayerItem { Path = @"\\evil\share\a.png" }, new WallpaperLayerItem { Path = @"C:\imported\school\resources\layer_1.png" }],
+};
+var neutralized = InjectorRemoteSettings.SanitizeRemoteSettings(incoming, current);
+Check(incoming.CustomFfmpegDownloadUrl == current.CustomFfmpegDownloadUrl && incoming.VideoProjectPath == current.VideoProjectPath
+      && incoming.VideoFillPath == current.VideoFillPath && incoming.StyleSheetPath == @"C:\imported\school\resources\style.axaml"
+      && incoming.WallpaperLayers[0].Path == "" && incoming.WallpaperLayers[1].Path.EndsWith("layer_1.png"),
+    "样式包消毒：本机专属设置保持原值、网络路径恢复原值、本机路径保留", string.Join("、", neutralized));
+Check(neutralized.SequenceEqual([nameof(InjectorSettings.CustomFfmpegDownloadUrl), nameof(InjectorSettings.VideoProjectPath),
+        nameof(InjectorSettings.VideoFillPath), nameof(InjectorSettings.WallpaperLayers)]),
+    "消毒结果如实列出（写进回执）", string.Join("、", neutralized));
 
 // 11. 锁定开关：独立于 InjectorSettings，套用预设（CopyFrom）不会解锁
 r = InjectorRemoteSettings.Apply(new Dictionary<string, string?> { [InjectorRemoteSettings.LockKey] = "true" }, "王老师");

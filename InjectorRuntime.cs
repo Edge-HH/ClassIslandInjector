@@ -439,12 +439,15 @@ internal static class InjectorRuntime
     /// <returns>预设是否存在并成功套用。</returns>
     public static bool ApplyPreset(string name)
     {
+        var associationBefore = Settings.PresetFileAssociationEnabled;
+
         // 内置「无预设」：把全部设置重置为中性默认（类似清除插件数据后的全新状态），
         // 不注入任何内容；保留 StyleSheetPath 与 WatchStyleSheet。
         if (string.Equals(name, InjectorPresetStore.NoPresetName, StringComparison.OrdinalIgnoreCase))
         {
             Settings.ResetToDefaults();
             SaveAndApply();
+            SyncFileAssociation(associationBefore);
             return true;
         }
 
@@ -458,7 +461,20 @@ internal static class InjectorRuntime
         Settings.CopyFrom(preset.Settings);
         Settings.EndUpdate();
         SaveAndApply();
+        SyncFileAssociation(associationBefore);
         return true;
+    }
+
+    /// <summary>
+    /// 预设 / 恢复默认会整体覆盖设置，「双击安装预设包」开关可能随之翻转：注册表里的 .cizip 关联要同步跟上
+    /// （同设置页开关与远程逐字段写入），否则开关显示与实际关联不一致，直到下次启动才纠正。
+    /// </summary>
+    private static void SyncFileAssociation(bool before)
+    {
+        if (Settings.PresetFileAssociationEnabled != before)
+        {
+            EnsureFileAssociation();
+        }
     }
 
     /// <summary>

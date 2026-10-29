@@ -173,4 +173,13 @@ internal static class SettingChoices
         new(TextColorMode.Fixed, "固定字色"),
         new(TextColorMode.AutoInvert, "跟随背景自动反色"),
     ];
+
+    /// <summary>主界面形状（设置页没有这个下拉，修改圆角时自动切为圆角矩形；远程设置页与自动化提供）。</summary>
+    public static readonly SettingChoice<IslandShape>[] IslandShapes =
+    [
+        new(IslandShape.HostDefault, "跟随 ClassIsland"),
+        new(IslandShape.Rectangle, "矩形"),
+        new(IslandShape.RoundedRectangle, "圆角矩形"),
+        new(IslandShape.Capsule, "胶囊"),
+    ];
 }

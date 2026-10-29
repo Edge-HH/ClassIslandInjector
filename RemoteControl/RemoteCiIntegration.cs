@@ -66,7 +66,7 @@ internal static class RemoteCiIntegration
         _registry = registry;
         RemoteCiBridge.Log(LayoutSupported
             ? "RemoteCI 支持设置页布局：WebUI 按本机设置页的分区 / 卡片 / 联动显示"
-            : "RemoteCI 版本较旧（不支持分区 / 卡片 / 颜色），WebUI 退回平铺表单；请把教室端 RemoteCI 插件升级到 3.2.2+");
+            : "RemoteCI 版本较旧（不支持分区 / 卡片 / 颜色），WebUI 退回平铺表单；请把教室端 RemoteCI 插件升级到 3.3.1.4+");
 
         InjectorRuntime.SettingsSaved += OnLocalChanged;
         RemoteManagementState.Changed += OnLocalChanged;
@@ -155,7 +155,7 @@ internal static class RemoteCiIntegration
         string.IsNullOrWhiteSpace(context.RequestedBy.DisplayName) ? context.RequestedBy.Username : context.RequestedBy.DisplayName;
 
     /// <summary>
-    /// 运行中的 RemoteCI 是否支持设置页布局（分区 / 卡片 / 联动 / 颜色类型，RemoteCI 3.2.2+）。
+    /// 运行中的 RemoteCI 是否支持设置页布局（分区 / 卡片 / 联动 / 颜色类型，RemoteCI 3.3.1.4+）。
     /// 编译期引用的是新版 RemoteCI.Shared，但教室端可能还装着旧版：旧版没有这些成员，直接赋值会在 JIT 时抛
     /// <see cref="MissingMethodException"/>，所以先反射探测，不支持就退回平铺字段（标签带卡片名、颜色按文本）。
     /// </summary>
@@ -366,7 +366,7 @@ internal static class RemoteCiIntegration
                 _ = work.ContinueWith(t => RemoteCiBridge.Log(
                     $"{who} 下发样式包（后台完成）→ {(t.IsCompletedSuccessfully ? t.Result.Message : t.Exception?.GetBaseException().Message)}"),
                     TaskScheduler.Default);
-                return Ok("样式包较大，仍在后台下载；完成后会自动安装" + (apply ? "并套用" : string.Empty) + "。可稍后在插件设置页确认。");
+                return Ok("样式包仍在后台下载（或在排队等上一次下发完成）；完成后会自动安装" + (apply ? "并套用" : string.Empty) + "。可稍后在插件设置页确认。");
             }
 
             var result = await work;
