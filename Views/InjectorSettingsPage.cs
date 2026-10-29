@@ -17,6 +17,7 @@ using ClassIsland.Core.Attributes;
 using ClassIsland.Core.Controls;
 using ClassIsland.Shared;
 using FluentAvalonia.UI.Controls;
+using ClassIslandInjector.RemoteControl;
 
 namespace ClassIslandInjector.Views;
 
@@ -72,6 +73,8 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     private readonly ToggleSwitch _disableVersionCheck = Toggle();
     private readonly ToggleSwitch _disableDegradationCheck = Toggle();
     private readonly ToggleSwitch _diagnosticLogging = Toggle();
+    // 连接器
+    private readonly ToggleSwitch _disconnectRemoteCi = Toggle();
     /// <summary>「降低视觉负担」需要隐藏说明的全部设置项/卡片及其原始说明。</summary>
     private readonly List<SettingsExpander> _allExpanders = [];
     private readonly List<SettingsExpanderItem> _allItems = [];
@@ -157,7 +160,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     /// <summary>「纹理图案」下拉当前是否为逐块选项（仅四种静态图案；开/关由组总开关表达）。</summary>
     private bool _textureBlockOptions;
     /// <summary>逐块底纹图案下拉（分体页用，仅静态图案；动态频谱不可逐块，无/继承不再混入）。</summary>
-    private static readonly Choice<BackgroundTexture>[] BlockTextureOptions =
+    private static readonly SettingChoice<BackgroundTexture>[] BlockTextureOptions =
     [
         new(BackgroundTexture.Grid, "网格线"),
         new(BackgroundTexture.Dots, "点阵"),
@@ -333,167 +336,25 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     /// <summary>抑制实时预览（程序性修改控件时置 true，如加载 / 撤销）。</summary>
     private bool _suppressLivePreview;
 
-    private static readonly Choice<VideoFillFit>[] VideoFillFits =
-    [
-        new(VideoFillFit.Fill, "填充（裁剪）"),
-        new(VideoFillFit.Fit, "适应（完整显示）"),
-        new(VideoFillFit.Stretch, "拉伸（变形）"),
-    ];
-
-    private static readonly Choice<IslandAnimationMode>[] IslandAnimationModes =
-    [
-        new(IslandAnimationMode.Breathe, "呼吸"),
-        new(IslandAnimationMode.Float, "浮动"),
-        new(IslandAnimationMode.Wave, "波浪"),
-    ];
-
-    private static readonly Choice<VisibilityAnimation>[] VisibilityAnimations =
-    [
-        new(VisibilityAnimation.Fade, "淡入淡出"),
-        new(VisibilityAnimation.Scale, "缩放"),
-        new(VisibilityAnimation.SlideFromTop, "从上方滑入"),
-        new(VisibilityAnimation.SlideFromBottom, "从下方滑入"),
-    ];
-
-    private static readonly Choice<EmphasisAnimation>[] EmphasisAnimations =
-    [
-        new(EmphasisAnimation.Pulse, "脉冲"),
-        new(EmphasisAnimation.Bounce, "弹跳"),
-        new(EmphasisAnimation.Shake, "摇晃"),
-        new(EmphasisAnimation.Flash, "闪烁"),
-    ];
-
-    private static readonly Choice<NotificationTransition>[] NotificationTransitions =
-    [
-        new(NotificationTransition.Fade, "淡入淡出"),
-        new(NotificationTransition.SlideDown, "向下滑动"),
-        new(NotificationTransition.SlideUp, "向上滑动"),
-        new(NotificationTransition.SlideLeft, "向左滑动"),
-        new(NotificationTransition.SlideRight, "向右滑动"),
-    ];
-
-    private static readonly Choice<RippleType>[] RippleTypes =
-    [
-        new(RippleType.Ring, "单环"),
-        new(RippleType.DoubleRing, "双环"),
-        new(RippleType.Glow, "光晕"),
-        new(RippleType.Square, "方框"),
-        new(RippleType.Hanabi, "舞萌花火（高级）"),
-        new(RippleType.Diamond, "菱形"),
-        new(RippleType.Triangle, "三角"),
-        new(RippleType.Star, "星形"),
-        new(RippleType.Hexagon, "六边形"),
-        new(RippleType.Burst, "放射"),
-        new(RippleType.Explode, "爆炸（高级）"),
-        new(RippleType.Particle, "粒子"),
-        new(RippleType.Cinematic, "屏幕涟漪（高级）"),
-        new(RippleType.Pjsk, "PJSK判定（高级）"),
-    ];
-
-    private static readonly Choice<PjskRippleDirection>[] PjskRippleDirections =
-    [
-        new(PjskRippleDirection.Up, "向上"),
-        new(PjskRippleDirection.Down, "向下"),
-    ];
-
-    private static readonly Choice<PjskNoteStyle>[] PjskNoteStyles =
-    [
-        new(PjskNoteStyle.Critical, "绝赞"),
-        new(PjskNoteStyle.Normal, "普通"),
-    ];
-
-    private static readonly Choice<ClickEffectType>[] ClickEffectTypes =
-    [
-        new(ClickEffectType.Ring, "扩散圆环"),
-        new(ClickEffectType.Bounce, "轻微跳跃"),
-    ];
-
-    private static readonly Choice<int>[] FakeWeatherCodes =
-    [
-        new(0, "晴"),
-        new(1, "多云"),
-        new(2, "阴"),
-        new(3, "阵雨"),
-        new(4, "雷阵雨"),
-        new(7, "小雨"),
-        new(8, "中雨"),
-        new(9, "大雨"),
-        new(14, "小雪"),
-        new(15, "中雪"),
-        new(18, "雾"),
-        new(53, "霾"),
-        new(99, "未知"),
-    ];
-
-    private static readonly Choice<int>[] FakeWeatherAlertIcons =
-    [
-        new(0, "无"),
-        new(1, "蓝色"),
-        new(2, "黄色"),
-        new(3, "橙色"),
-        new(4, "红色"),
-    ];
-
-    private static readonly Choice<int>[] StartupOpenTargets =
-    [
-        new(0, "不打开"),
-        new(1, "ClassIsland 应用设置"),
-        new(2, "应用设置 → 样式注入器"),
-        new(3, "应用设置 → 插件"),
-    ];
-
-    private static readonly Choice<CarouselAnimationType>[] CarouselAnimationTypes =
-    [
-        new(CarouselAnimationType.SlideUp, "上翻"),
-        new(CarouselAnimationType.SlideDown, "下翻"),
-        new(CarouselAnimationType.SlideLeft, "左滑"),
-        new(CarouselAnimationType.SlideRight, "右滑"),
-        new(CarouselAnimationType.Fade, "淡入淡出"),
-    ];
-
-    private static readonly Choice<PrepareOnClassStyle>[] PrepareOnClassStyles =
-    [
-        new(PrepareOnClassStyle.Arrows, "箭头"),
-        new(PrepareOnClassStyle.PulseRing, "扩散光环"),
-        new(PrepareOnClassStyle.Scanline, "扫描线"),
-        new(PrepareOnClassStyle.LightBand, "光带"),
-    ];
-
-    private static readonly Choice<ScanlineDirection>[] ScanDirections =
-    [
-        new(ScanlineDirection.Horizontal, "横向（上下扫）"),
-        new(ScanlineDirection.Vertical, "纵向（左右扫）"),
-    ];
-
-    private static readonly Choice<GradientDirection>[] GradientDirections =
-    [
-        new(GradientDirection.TopLeftToBottomRight, "左上 → 右下"),
-        new(GradientDirection.TopToBottom, "上 → 下"),
-        new(GradientDirection.LeftToRight, "左 → 右"),
-        new(GradientDirection.BottomLeftToTopRight, "左下 → 右上"),
-        new(GradientDirection.BottomToTop, "下 → 上"),
-        new(GradientDirection.RightToLeft, "右 → 左"),
-        new(GradientDirection.TopRightToBottomLeft, "右上 → 左下"),
-        new(GradientDirection.BottomRightToTopLeft, "右下 → 左上"),
-    ];
-
-    private static readonly Choice<BackgroundTexture>[] BackgroundTextures =
-    [
-        new(BackgroundTexture.Grid, "网格线"),
-        new(BackgroundTexture.Dots, "点阵"),
-        new(BackgroundTexture.DiagonalLines, "斜线"),
-        new(BackgroundTexture.Cross, "十字网格"),
-        new(BackgroundTexture.Spectrum, "动态频谱"),
-        new(BackgroundTexture.Aero, "Aero 玻璃条纹"),
-    ];
-
-    /// <summary>字色来源（文字美化组）。</summary>
-    private static readonly Choice<TextColorMode>[] TextColorModes =
-    [
-        new(TextColorMode.KeepHost, "保持宿主原字色"),
-        new(TextColorMode.Fixed, "固定字色"),
-        new(TextColorMode.AutoInvert, "跟随背景自动反色"),
-    ];
+    // 下拉候选项统一定义在 SettingChoices（RemoteCI 远程设置页共用同一份，保证选项与显示名一致）。
+    private static readonly SettingChoice<VideoFillFit>[] VideoFillFits = SettingChoices.VideoFillFits;
+    private static readonly SettingChoice<IslandAnimationMode>[] IslandAnimationModes = SettingChoices.IslandAnimationModes;
+    private static readonly SettingChoice<VisibilityAnimation>[] VisibilityAnimations = SettingChoices.VisibilityAnimations;
+    private static readonly SettingChoice<EmphasisAnimation>[] EmphasisAnimations = SettingChoices.EmphasisAnimations;
+    private static readonly SettingChoice<NotificationTransition>[] NotificationTransitions = SettingChoices.NotificationTransitions;
+    private static readonly SettingChoice<RippleType>[] RippleTypes = SettingChoices.RippleTypes;
+    private static readonly SettingChoice<PjskRippleDirection>[] PjskRippleDirections = SettingChoices.PjskRippleDirections;
+    private static readonly SettingChoice<PjskNoteStyle>[] PjskNoteStyles = SettingChoices.PjskNoteStyles;
+    private static readonly SettingChoice<ClickEffectType>[] ClickEffectTypes = SettingChoices.ClickEffectTypes;
+    private static readonly SettingChoice<int>[] FakeWeatherCodes = SettingChoices.FakeWeatherCodes;
+    private static readonly SettingChoice<int>[] FakeWeatherAlertIcons = SettingChoices.FakeWeatherAlertIcons;
+    private static readonly SettingChoice<int>[] StartupOpenTargets = SettingChoices.StartupOpenTargets;
+    private static readonly SettingChoice<CarouselAnimationType>[] CarouselAnimationTypes = SettingChoices.CarouselAnimationTypes;
+    private static readonly SettingChoice<PrepareOnClassStyle>[] PrepareOnClassStyles = SettingChoices.PrepareOnClassStyles;
+    private static readonly SettingChoice<ScanlineDirection>[] ScanDirections = SettingChoices.ScanDirections;
+    private static readonly SettingChoice<GradientDirection>[] GradientDirections = SettingChoices.GradientDirections;
+    private static readonly SettingChoice<BackgroundTexture>[] BackgroundTextures = SettingChoices.BackgroundTextures;
+    private static readonly SettingChoice<TextColorMode>[] TextColorModes = SettingChoices.TextColorModes;
 
     /// <summary>
     /// 是否在「用户预设」里显示「预设商店」入口。暂时置 false 隐藏；
@@ -523,6 +384,23 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         // 不订阅的话页面会停留在旧语义，画笔写错目标 → 用户看到「底色填充失效」（Issue #8）。
         _onLayoutModeChanged = () => Dispatcher.UIThread.Post(OnLayoutModeChanged);
         MainWindowStyleInjector.LayoutModeChanged += _onLayoutModeChanged;
+        // 远程管理（RemoteCI WebUI）改了设置：整页重新加载，否则下一次本地操作会把旧值写回、覆盖远程修改。
+        _onSettingsChangedRemotely = (_, _) => Dispatcher.UIThread.Post(LoadFromSettings);
+        InjectorRuntime.SettingsChangedRemotely += _onSettingsChangedRemotely;
+        _onRemoteStateChanged = (_, _) => Dispatcher.UIThread.Post(ApplyRemoteLock);
+        RemoteManagementState.Changed += _onRemoteStateChanged;
+        // 「连接器 → 不连接 RemoteCI」：不属于 InjectorSettings（预设 / 恢复默认不应改它，也不开放给远程），
+        // 单独存 remote-management.json，切换即断开 / 重新接入。
+        _disconnectRemoteCi.IsChecked = RemoteManagementState.DisconnectRemoteCi;
+        _disconnectRemoteCi.IsCheckedChanged += (_, _) =>
+        {
+            var disconnect = _disconnectRemoteCi.IsChecked == true;
+            if (disconnect != RemoteManagementState.DisconnectRemoteCi)
+            {
+                RemoteCiBridge.SetDisconnected(disconnect);
+            }
+        };
+        ApplyRemoteLock();
         // 行级分体（MainWindowLineSettings.IslandSeparationMode）不触发宿主全局开关变更，
         // 用低频轮询兜底：分体块数量签名变化时才刷新（几乎零开销）。
         _layoutGuardTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(800), DispatcherPriority.Background,
@@ -544,6 +422,8 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     {
         ContractCatalogService.CatalogChanged -= _onCatalogChanged;
         MainWindowStyleInjector.LayoutModeChanged -= _onLayoutModeChanged;
+        InjectorRuntime.SettingsChangedRemotely -= _onSettingsChangedRemotely;
+        RemoteManagementState.Changed -= _onRemoteStateChanged;
         if (_layoutGuardTimer != null)
         {
             _layoutGuardTimer.Stop();
@@ -559,6 +439,58 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         _splitCommitTimer.Stop();
         base.OnDetachedFromVisualTree(e);
     }
+
+    /// <summary>
+    /// 远程锁定（RemoteCI WebUI「锁定本机样式设置」）：显示提示并把页面其余部分设为只读。
+    /// 只禁用本页；自动化行动与远程管理本身不受影响。
+    /// </summary>
+    private void ApplyRemoteLock()
+    {
+        // 「删除所有数据」等会重置状态文件，开关跟着回显（值相同则不会触发切换）。
+        _disconnectRemoteCi.IsChecked = RemoteManagementState.DisconnectRemoteCi;
+
+        // 只在 RemoteCI 已接入时生效：学校卸载 RemoteCI 后锁定自动失效，避免本机被永久锁死、无人能解。
+        var locked = RemoteCiBridge.IsLocalEditingLocked;
+        if (locked)
+        {
+            var last = RemoteManagementState.LastRemoteChange;
+            var by = RemoteManagementState.LastRemoteBy;
+            _remoteLockBar.Message = "本机样式设置已由学校通过 RemoteCI 远程管理锁定，只能在 WebUI 中修改。" +
+                (last is { } time ? $"最近一次远程修改：{time:yyyy-MM-dd HH:mm}" + (by != null ? $"（{by}）" : string.Empty) + "。" : string.Empty);
+        }
+
+        _remoteLockBar.IsVisible = locked;
+        _remoteLockBar.IsOpen = locked;
+        if (locked && _remoteLockOverrides.Count == 0)
+        {
+            // 用高于本地值的优先级（Animation）压住 IsEnabled，而不是直接改本地值：
+            // 页面其它逻辑（画笔作用域、FFmpeg 可用性、分体切换……）照常写各子项自己的 IsEnabled，
+            // 锁定期间一律被覆盖、不会把锁「解开」；解锁时释放覆盖，各子项自然回到它们此刻的本地值，不需要快照。
+            foreach (var child in _contentPanel.Children)
+            {
+                if (!ReferenceEquals(child, _remoteLockBar) && !_remoteLockExempt.Contains(child) &&
+                    child.SetValue(InputElement.IsEnabledProperty, false, BindingPriority.Animation) is { } lockOverride)
+                {
+                    _remoteLockOverrides.Add(lockOverride);
+                }
+            }
+        }
+        else if (!locked && _remoteLockOverrides.Count > 0)
+        {
+            foreach (var lockOverride in _remoteLockOverrides)
+            {
+                lockOverride.Dispose();
+            }
+
+            _remoteLockOverrides.Clear();
+        }
+    }
+
+    /// <summary>远程锁定期间压在各子项 IsEnabled 上的覆盖值（未锁定时为空）。</summary>
+    private readonly List<IDisposable> _remoteLockOverrides = [];
+
+    /// <summary>远程锁定时仍保持可用的子项（「关于」分区）。</summary>
+    private readonly HashSet<Control> _remoteLockExempt = [];
 
     /// <summary>SMTC 教学路径（教程 Id / 起始段落），改 JSON 里的教程 Id 时务必同步修改。</summary>
     private const string SmtcTutorialPath = "classislandInjector.tutorials.smtc/prologue";
@@ -589,6 +521,25 @@ public sealed class InjectorSettingsPage : SettingsPageBase
 
     /// <summary>主界面配置方式切换订阅（命名引用，便于退订）。</summary>
     private Action _onLayoutModeChanged = null!;
+
+    /// <summary>设置被远程管理修改后重新加载控件（命名引用，便于退订）。</summary>
+    private EventHandler _onSettingsChangedRemotely = null!;
+
+    /// <summary>远程管理锁定状态变化订阅（命名引用，便于退订）。</summary>
+    private EventHandler _onRemoteStateChanged = null!;
+
+    /// <summary>页面根容器：远程锁定时禁用除锁定提示外的全部子项。</summary>
+    private StackPanel _contentPanel = null!;
+
+    /// <summary>「本机样式由学校统一管理」提示（仅远程锁定时显示）。</summary>
+    private readonly InfoBar _remoteLockBar = new()
+    {
+        Severity = InfoBarSeverity.Informational,
+        Title = "样式由学校统一管理",
+        IsClosable = false,
+        IsOpen = false,
+        IsVisible = false
+    };
 
     /// <summary>行级分体切换的低频兜底轮询（宿主全局开关不覆盖行级分体）。</summary>
     private DispatcherTimer? _layoutGuardTimer;
@@ -1016,6 +967,8 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         panel.Children.Add(_splitBlockSection);
 
         panel.Children.Add(new IconText { Glyph = "\uEC4A", Text = "样式注入器", Margin = new Thickness(0, 0, 0, 4) });
+        panel.Children.Add(_remoteLockBar);
+        _contentPanel = panel;
 
         if (MainWindowStyleInjector.IsSeparatedMode())
         {
@@ -1510,6 +1463,10 @@ public sealed class InjectorSettingsPage : SettingsPageBase
             "彻底删除已安装的 FFmpeg 解码库。", _ffmpegDeleteButton));
         panel.Children.Add(Setting("\uE959", "重置插件教学", "清除本插件全部教学（SMTC / 底图编辑器）的完成状态，下次打开相关窗口即可重新播放。", Button("重置教学", ResetPluginTutorials)));
 
+        AddSection(panel, "\uEDC7", "连接器");
+        panel.Children.Add(Setting("\uEDCF", "不连接RemoteCI", "开启后样式注入器将不会受RemoteCI管理，若学校锁定了插件设置页，此选项不可编辑", _disconnectRemoteCi));
+
+        var aboutStart = panel.Children.Count;
         AddSection(panel, "\uE9E4", "关于");
         var manifest = Plugin.Manifest;
         panel.Children.Add(new SettingsExpander
@@ -1545,6 +1502,11 @@ public sealed class InjectorSettingsPage : SettingsPageBase
                 }
             }
         });
+        // 「关于」只是展示信息与链接，远程锁定时保持可用。
+        for (var i = aboutStart; i < panel.Children.Count; i++)
+        {
+            _remoteLockExempt.Add(panel.Children[i]);
+        }
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
         actions.Children.Add(Button("保存并应用", SaveAndApply));
@@ -1557,6 +1519,13 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         DragDrop.SetAllowDrop(panel, true);
         panel.AddHandler(DragDrop.DragOverEvent, (_, e) =>
         {
+            if (RemoteCiBridge.IsLocalEditingLocked)
+            {
+                e.DragEffects = DragDropEffects.None;
+                e.Handled = true;
+                return;
+            }
+
             // 拖入文件即可放置；是否预设包在 Drop 时再校验（DragOver 阶段取不到文件也放行）。
             e.DragEffects = e.Data.Contains(DataFormats.Files)
                 ? DragDropEffects.Copy
@@ -1565,6 +1534,12 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         });
         panel.AddHandler(DragDrop.DropEvent, async (_, e) =>
         {
+            if (RemoteCiBridge.IsLocalEditingLocked)
+            {
+                e.Handled = true;
+                return;
+            }
+
             var path = GetDraggedPresetPackage(e.Data);
             if (path == null)
             {
@@ -2178,12 +2153,12 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         var on = _backgroundTextureEnabled.IsChecked == true;
         // 下拉取不到选中项时不要静默落到 Grid：那会把用户原先的图案改成网格线，
         // 看起来就是「底色填充恢复默认」。宁可不提交这一项，也不写一个用户没选过的值。
-        if (on && _backgroundTextureType.SelectedItem is not Choice<BackgroundTexture> choice)
+        if (on && _backgroundTextureType.SelectedItem is not SettingChoice<BackgroundTexture> choice)
         {
             return;
         }
 
-        var selectedType = _backgroundTextureType.SelectedItem is Choice<BackgroundTexture> picked
+        var selectedType = _backgroundTextureType.SelectedItem is SettingChoice<BackgroundTexture> picked
             ? picked.Value
             : BackgroundTexture.None;
         var settings = InjectorRuntime.Settings;
@@ -4028,7 +4003,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     {
         void Sync()
         {
-            var mode = _textColorMode.SelectedItem is Choice<TextColorMode> choice
+            var mode = _textColorMode.SelectedItem is SettingChoice<TextColorMode> choice
                 ? choice.Value
                 : TextColorMode.KeepHost;
             var enabled = _textStylingEnabled.IsChecked == true;
@@ -4094,7 +4069,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     {
         void Sync()
         {
-            var selected = selector.SelectedItem is Choice<T> choice ? choice.Value : default!;
+            var selected = selector.SelectedItem is SettingChoice<T> choice ? choice.Value : default!;
             target.IsVisible = selected != null && Array.IndexOf(hiddenValues, selected) < 0;
         }
 
@@ -4107,7 +4082,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     {
         void Sync() => target.IsVisible =
             masterToggle.IsChecked == true &&
-            selector.SelectedItem is Choice<T> choice &&
+            selector.SelectedItem is SettingChoice<T> choice &&
             Array.IndexOf(hiddenValues, choice.Value) < 0;
         masterToggle.PropertyChanged += (_, _) => Sync();
         selector.SelectionChanged += (_, _) => Sync();
@@ -4126,7 +4101,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     }
 
     /// <summary>打开总开关且下拉框尚未选中任何项时，自动选第一个选项（处理全新安装/旧配置为 None 的情况）。</summary>
-    private static void AutoSelectOnEnable<T>(ToggleSwitch toggle, ComboBox selector, IEnumerable<Choice<T>> choices)
+    private static void AutoSelectOnEnable<T>(ToggleSwitch toggle, ComboBox selector, IEnumerable<SettingChoice<T>> choices)
     {
         void Sync()
         {
@@ -4210,7 +4185,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         Margin = new Thickness(0, 0, 6, 0)
     };
 
-    private static ComboBox Combo<T>(IEnumerable<Choice<T>> items) => new()
+    private static ComboBox Combo<T>(IEnumerable<SettingChoice<T>> items) => new()
     {
         ItemsSource = items,
         MinWidth = 220,
@@ -4503,19 +4478,14 @@ public sealed class InjectorSettingsPage : SettingsPageBase
 
     private static Color ReadColor(string value, Color fallback) => ColorUtil.Parse(value, fallback);
 
-    private static void Select<T>(ComboBox comboBox, IEnumerable<Choice<T>> choices, T value)
+    private static void Select<T>(ComboBox comboBox, IEnumerable<SettingChoice<T>> choices, T value)
     {
         comboBox.SelectedItem = choices.FirstOrDefault(x => EqualityComparer<T>.Default.Equals(x.Value, value));
     }
 
     private static T Selected<T>(ComboBox comboBox, T fallback) =>
-        comboBox.SelectedItem is Choice<T> choice ? choice.Value : fallback;
+        comboBox.SelectedItem is SettingChoice<T> choice ? choice.Value : fallback;
 
-    private static string Display<T>(IEnumerable<Choice<T>> choices, T value) =>
+    private static string Display<T>(IEnumerable<SettingChoice<T>> choices, T value) =>
         choices.FirstOrDefault(x => EqualityComparer<T>.Default.Equals(x.Value, value))?.Text ?? value?.ToString() ?? string.Empty;
-
-    private sealed record Choice<T>(T Value, string Text)
-    {
-        public override string ToString() => Text;
-    }
 }

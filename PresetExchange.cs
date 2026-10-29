@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Text.Json;
 
@@ -43,8 +44,59 @@ internal static class PresetExchange
     private const string ResourcesDirName = "resources";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    /// <summary>
+    /// 已解包、但还没装进预设列表的导入目录（全路径，不区分大小写）。
+    /// 用户取消安装时目录会一直留在这里，直到宿主重启——那之后它不再受保护，下次清理时按「无引用」删除。
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, byte> PendingImportDirectories = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>操作结果；导入成功时 <see cref="Preset"/> 为解析出的用户预设，<see cref="Metadata"/> 为元数据。</summary>
     public sealed record Result(bool Success, string Message, UserPreset? Preset = null, PresetMetadata? Metadata = null);
+
+    /// <summary>导入目录是否仍在「已解包、未装进预设列表」的过程中（清理导入目录时必须跳过）。</summary>
+    public static bool IsImportPending(string directory) =>
+        PendingImportDirectories.ContainsKey(Path.GetFullPath(directory));
+
+    /// <summary>预设已装进列表：释放它引用的导入目录，此后由「是否被引用」决定去留。</summary>
+    public static void CompleteImport(UserPreset preset)
+    {
+        foreach (var directory in PendingImportDirectories.Keys)
+        {
+            if (EnumerateResourcePaths(preset.Settings).Any(path => IsPathWithin(path, directory)))
+            {
+                PendingImportDirectories.TryRemove(directory, out _);
+            }
+        }
+    }
+
+    /// <summary>设置里引用了本地静态资源的路径（与导出/导入改写的范围一致：自定义样式表 + 图层底图）。</summary>
+    public static IEnumerable<string> EnumerateResourcePaths(InjectorSettings settings)
+    {
+        if (!string.IsNullOrWhiteSpace(settings.StyleSheetPath))
+        {
+            yield return settings.StyleSheetPath;
+        }
+
+        foreach (var layer in settings.WallpaperLayers.Where(l => !string.IsNullOrWhiteSpace(l.Path)))
+        {
+            yield return layer.Path;
+        }
+    }
+
+    /// <summary><paramref name="path"/> 是否就是 <paramref name="directory"/>（全路径）或位于其下。</summary>
+    public static bool IsPathWithin(string path, string directory)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            return full.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
+                   full.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// 导出用户预设到 zip（含引用的本地静态资源：自定义样式表 / 底图 / 图层图片）。
@@ -162,9 +214,13 @@ internal static class PresetExchange
             }
 
 
-            // 解包资源：每次导入独立目录（预设名 + 时间戳），避免覆盖已有导入。
-            var importDir = Path.Combine(importRootDirectory, $"{Sanitize(preset.Name)}_{DateTime.Now:yyyyMMddHHmmss}");
-            Directory.CreateDirectory(importDir);
+            // 解包资源：每次导入独立目录（预设名 + 时间戳 + 随机后缀），避免覆盖已有导入；
+            // 同一秒内导入两个同名包（如远程连点两次下发）也不会解进同一个目录、互相抢文件。
+            var importDir = Path.GetFullPath(Path.Combine(importRootDirectory,
+                $"{Sanitize(preset.Name)}_{DateTime.Now:yyyyMMddHHmmss}_{Guid.NewGuid().ToString("N")[..6]}"));
+            // 先登记为「导入中」再解包：从解包到装进预设列表之间（安装确认对话框、远程下发切回 UI 线程）
+            // 这个目录还没有任何预设引用，清理导入目录时必须跳过它。
+            PendingImportDirectories.TryAdd(importDir, 0);
             var extracted = 0;
             foreach (var entry in archive.Entries)
             {
@@ -176,6 +232,12 @@ internal static class PresetExchange
                         extracted++;
                     }
                 }
+            }
+
+            if (extracted == 0)
+            {
+                // 没有资源就不会建目录，也就无需保护。
+                PendingImportDirectories.TryRemove(importDir, out _);
             }
 
             // 重写 resources/ 相对引用为本地绝对路径；其余残留路径（不应出现）清空。

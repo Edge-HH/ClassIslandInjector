@@ -98,7 +98,16 @@ public sealed class SetInjectorSettingActionSettingsControl : ActionSettingsCont
             SettingValueKind.Enum => spec.EnumType,
             _ => null
         };
-        return targetType == null ? raw : InjectorSettingReflection.ConvertTo(targetType, raw);
+        try
+        {
+            return targetType == null ? raw : InjectorSettingReflection.ConvertTo(targetType, raw);
+        }
+        catch (Exception ex) when (ex is ArgumentException or FormatException or InvalidCastException or InvalidOperationException or OverflowException)
+        {
+            // 已保存的值与当前类型对不上（如设置项从自由文本改成了下拉），按「无值」处理：
+            // 编辑器显示插件当前值，用户重新选择即覆盖；不能让整个行动编辑器因此构建失败。
+            return null;
+        }
     }
 
     private Control BuildEditor(InjectorSettingSpec spec)
